@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>켄뷰 OEM 납기관리</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <header>
+        <h1>켄뷰 OEM 납기관리</h1>
+        <nav>
+            <button class="tab-btn active" data-tab="master">마스터파일</button>
+            <button class="tab-btn" data-tab="manage">품목/생산 관리</button>
+            <button class="tab-btn" data-tab="sales">매출 현황</button>
+        </nav>
+    </header>
+
+    <main>
+        <!-- 마스터파일 탭 -->
+        <section id="master" class="tab-content active">
+            <div class="section-header">
+                <h2>마스터파일</h2>
+                <div class="btn-group">
+                    <label class="btn btn-secondary">
+                        엑셀 불러오기
+                        <input type="file" id="importProducts" accept=".xlsx,.xls,.csv" hidden>
+                    </label>
+                    <button class="btn btn-secondary" id="exportProducts">엑셀 내보내기</button>
+                </div>
+            </div>
+
+            <div class="form-card">
+                <h3>품목 등록</h3>
+                <form id="productForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>품목코드</label>
+                            <input type="text" id="productCode" placeholder="예: KV-001" required>
+                        </div>
+                        <div class="form-group">
+                            <label>품목명</label>
+                            <input type="text" id="productName" placeholder="예: 리스테린 쿨민트" required>
+                        </div>
+                        <div class="form-group">
+                            <label>존슨코드</label>
+                            <input type="text" id="productSpec" placeholder="예: 500ml">
+                        </div>
+                        <div class="form-group">
+                            <label>단가 (원)</label>
+                            <input type="number" id="productPrice" placeholder="예: 3500" required>
+                        </div>
+                        <div class="form-group form-btn">
+                            <button type="submit" class="btn btn-primary">등록</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <div class="table-container">
+                <table id="productTable">
+                    <thead>
+                        <tr>
+                            <th>품목코드</th>
+                            <th>품목명</th>
+                            <th>존슨코드</th>
+                            <th>단가 (원)</th>
+                            <th>관리</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productTableBody"></tbody>
+                </table>
+                <p class="empty-msg" id="productEmptyMsg">등록된 품목이 없습니다.</p>
+            </div>
+        </section>
+
+        <!-- 품목/생산 관리 탭 -->
+        <section id="manage" class="tab-content">
+            <div class="section-header">
+                <h2>품목/생산 관리</h2>
+                <div class="btn-group">
+                    <label class="btn btn-secondary">
+                        생산 엑셀 불러오기
+                        <input type="file" id="importProduction" accept=".xlsx,.xls,.csv" hidden>
+                    </label>
+                    <button class="btn btn-secondary" id="exportProduction">생산 엑셀 내보내기</button>
+                </div>
+            </div>
+
+            <div class="form-card">
+                <h3>생산실적 등록</h3>
+                <form id="productionForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>품목코드</label>
+                            <select id="prodProductCode" required>
+                                <option value="">선택하세요</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>존슨코드 (자동)</label>
+                            <input type="text" id="prodJohnsonCode" readonly placeholder="품목코드 선택 시 자동">
+                        </div>
+                        <div class="form-group">
+                            <label>품목명 (자동)</label>
+                            <input type="text" id="prodProductName" readonly placeholder="품목코드 선택 시 자동">
+                        </div>
+                        <div class="form-group">
+                            <label>생산수량</label>
+                            <input type="number" id="prodQuantity" placeholder="예: 1000" required>
+                        </div>
+                        <div class="form-group">
+                            <label>배치번호</label>
+                            <input type="text" id="batchNumber" placeholder="예: 260309-021" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Manufacturing Date (자동)</label>
+                            <input type="text" id="prodDate" readonly placeholder="배치번호 입력 시 자동">
+                        </div>
+                        <div class="form-group">
+                            <label>단가 (자동)</label>
+                            <input type="text" id="prodUnitPrice" readonly placeholder="마스터파일에서 자동">
+                        </div>
+                        <div class="form-group">
+                            <label>금액 (자동)</label>
+                            <input type="text" id="prodSales" readonly placeholder="단가 x 생산수량">
+                        </div>
+                        <div class="form-group form-btn">
+                            <button type="submit" class="btn btn-primary">등록</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <div class="table-container" style="margin-top:20px;">
+                <table id="productionTable">
+                    <thead>
+                        <tr>
+                            <th>품목코드</th>
+                            <th>존슨코드</th>
+                            <th>품목명</th>
+                            <th>생산수량</th>
+                            <th>배치번호</th>
+                            <th>Manufacturing Date</th>
+                            <th>단가 (원)</th>
+                            <th>금액 (원)</th>
+                            <th>관리</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productionTableBody"></tbody>
+                </table>
+                <p class="empty-msg" id="productionEmptyMsg">등록된 생산실적이 없습니다.</p>
+            </div>
+        </section>
+
+        <!-- 매출 현황 탭 -->
+        <section id="sales" class="tab-content">
+            <div class="section-header">
+                <h2>매출 현황</h2>
+                <div class="btn-group">
+                    <button class="btn btn-secondary" id="exportSales">엑셀 내보내기</button>
+                </div>
+            </div>
+
+            <div class="filter-bar">
+                <div class="form-group">
+                    <label>기간 시작</label>
+                    <input type="date" id="filterStart">
+                </div>
+                <div class="form-group">
+                    <label>기간 종료</label>
+                    <input type="date" id="filterEnd">
+                </div>
+                <div class="form-group">
+                    <label>품목코드</label>
+                    <select id="filterProduct">
+                        <option value="">전체</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" id="filterBtn">조회</button>
+            </div>
+
+            <div class="summary-cards">
+                <div class="summary-card">
+                    <span class="summary-label">총 매출액</span>
+                    <span class="summary-value" id="totalSales">0 원</span>
+                </div>
+                <div class="summary-card">
+                    <span class="summary-label">총 생산수량</span>
+                    <span class="summary-value" id="totalQuantity">0 개</span>
+                </div>
+                <div class="summary-card">
+                    <span class="summary-label">품목 수</span>
+                    <span class="summary-value" id="totalProducts">0 건</span>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <h3>품목별 매출 요약</h3>
+                <table id="salesSummaryTable">
+                    <thead>
+                        <tr>
+                            <th>품목코드</th>
+                            <th>품목명</th>
+                            <th>총 생산수량</th>
+                            <th>단가 (원)</th>
+                            <th>총 매출액 (원)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="salesSummaryBody"></tbody>
+                </table>
+            </div>
+
+            <div class="table-container" style="margin-top:20px;">
+                <h3>상세 내역</h3>
+                <table id="salesDetailTable">
+                    <thead>
+                        <tr>
+                            <th>품목코드</th>
+                            <th>품목명</th>
+                            <th>배치번호</th>
+                            <th>생산일자</th>
+                            <th>생산수량</th>
+                            <th>단가 (원)</th>
+                            <th>매출액 (원)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="salesDetailBody"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
