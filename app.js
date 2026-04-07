@@ -70,6 +70,13 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         if (btn.dataset.tab === 'asn') renderAsn();
         if (btn.dataset.tab === 'sales') {
             refreshFilterProductSelect();
+            // 오늘 날짜 기준 매출월을 기본 선택
+            const today = getKoreanDate();
+            const currentMonth = today.substring(2, 4) + '년 ' + Number(today.substring(5, 7)) + '월';
+            const monthSelect = document.getElementById('filterSalesMonth');
+            if ([...monthSelect.options].some(o => o.value === currentMonth)) {
+                monthSelect.value = currentMonth;
+            }
             updateSales();
         }
     });
