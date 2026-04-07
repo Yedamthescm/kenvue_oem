@@ -351,6 +351,25 @@ tbody tr:hover {
     }
 }
 
+.btn-sm {
+    padding: 2px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+#asnTable td, #asnTable th {
+    white-space: nowrap;
+}
+
+.btn-delete-light {
+    background: #ef9a9a;
+    color: #000;
+}
+
+.btn-delete-light:hover {
+    background: #e57373;
+}
+
 .editable-cell {
     cursor: pointer;
     background: #fffde7;

@@ -457,9 +457,20 @@ function renderAsn() {
         return;
     }
 
+    // 매출월이 없는 기존 데이터는 uploadDate 기준으로 자동 채움
+    let needsSave = false;
+    asnData.forEach(row => {
+        if (!row.salesMonth && row.uploadDate) {
+            row.salesMonth = row.uploadDate.substring(2, 4) + '년 ' + Number(row.uploadDate.substring(5, 7)) + '월';
+            needsSave = true;
+        }
+    });
+    if (needsSave) saveData('kenvue_asn', asnData);
+
     emptyMsg.style.display = 'none';
     tbody.innerHTML = asnData.map((row, i) => `
         <tr>
+            <td><button class="btn btn-delete-light btn-sm" onclick="deleteAsnRow(${i})">삭제</button></td>
             <td class="editable-cell" onclick="editSalesMonth(${i})" title="클릭하여 수정">${row.salesMonth || ''}</td>
             <td>${row.uploadDate}</td>
             <td>${row.cosmaxCode}</td>
@@ -474,6 +485,14 @@ function renderAsn() {
             <td class="text-right">${formatNumber(row.sales)}</td>
         </tr>`).join('');
 }
+
+window.deleteAsnRow = function(index) {
+    if (confirm('이 행을 삭제하시겠습니까?')) {
+        asnData.splice(index, 1);
+        saveData('kenvue_asn', asnData);
+        renderAsn();
+    }
+};
 
 window.editSalesMonth = function(index) {
     const row = asnData[index];
