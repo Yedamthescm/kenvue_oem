@@ -6,13 +6,17 @@
     <title>켄뷰 OEM 납기관리</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
     <header>
         <h1>켄뷰 OEM 납기관리</h1>
         <nav>
-            <button class="tab-btn active" data-tab="master">마스터파일</button>
-            <button class="tab-btn" data-tab="manage">품목/생산 관리</button>
+            <button class="tab-btn active" data-tab="master">품목 마스터</button>
+            <button class="tab-btn" data-tab="order">수주 마스터</button>
+            <button class="tab-btn" data-tab="performance">실적 입력</button>
+            <button class="tab-btn" data-tab="asn">ASN</button>
             <button class="tab-btn" data-tab="sales">매출 현황</button>
         </nav>
     </header>
@@ -21,7 +25,7 @@
         <!-- 마스터파일 탭 -->
         <section id="master" class="tab-content active">
             <div class="section-header">
-                <h2>마스터파일</h2>
+                <h2>품목 마스터</h2>
                 <div class="btn-group">
                     <label class="btn btn-secondary">
                         엑셀 불러오기
@@ -36,16 +40,20 @@
                 <form id="productForm">
                     <div class="form-row">
                         <div class="form-group">
-                            <label>품목코드</label>
+                            <label>Cosmax Code</label>
                             <input type="text" id="productCode" placeholder="예: KV-001" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Kenvue Code</label>
+                            <input type="text" id="productKenvueCode" placeholder="예: 12345">
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <input type="text" id="productDescription" placeholder="예: Ready to release">
                         </div>
                         <div class="form-group">
                             <label>품목명</label>
                             <input type="text" id="productName" placeholder="예: 리스테린 쿨민트" required>
-                        </div>
-                        <div class="form-group">
-                            <label>존슨코드</label>
-                            <input type="text" id="productSpec" placeholder="예: 500ml">
                         </div>
                         <div class="form-group">
                             <label>단가 (원)</label>
@@ -62,9 +70,10 @@
                 <table id="productTable">
                     <thead>
                         <tr>
-                            <th>품목코드</th>
+                            <th>Cosmax Code</th>
+                            <th>Kenvue Code</th>
+                            <th>Description</th>
                             <th>품목명</th>
-                            <th>존슨코드</th>
                             <th>단가 (원)</th>
                             <th>관리</th>
                         </tr>
@@ -75,82 +84,98 @@
             </div>
         </section>
 
-        <!-- 품목/생산 관리 탭 -->
-        <section id="manage" class="tab-content">
+        <!-- 수주 마스터 탭 -->
+        <section id="order" class="tab-content">
             <div class="section-header">
-                <h2>품목/생산 관리</h2>
+                <h2>수주 마스터</h2>
                 <div class="btn-group">
                     <label class="btn btn-secondary">
-                        생산 엑셀 불러오기
-                        <input type="file" id="importProduction" accept=".xlsx,.xls,.csv" hidden>
+                        엑셀 불러오기
+                        <input type="file" id="importOrders" accept=".xlsx,.xls,.csv" hidden>
                     </label>
-                    <button class="btn btn-secondary" id="exportProduction">생산 엑셀 내보내기</button>
+                    <button class="btn btn-danger" id="clearOrders">초기화</button>
                 </div>
             </div>
 
-            <div class="form-card">
-                <h3>생산실적 등록</h3>
-                <form id="productionForm">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>품목코드</label>
-                            <select id="prodProductCode" required>
-                                <option value="">선택하세요</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>존슨코드 (자동)</label>
-                            <input type="text" id="prodJohnsonCode" readonly placeholder="품목코드 선택 시 자동">
-                        </div>
-                        <div class="form-group">
-                            <label>품목명 (자동)</label>
-                            <input type="text" id="prodProductName" readonly placeholder="품목코드 선택 시 자동">
-                        </div>
-                        <div class="form-group">
-                            <label>생산수량</label>
-                            <input type="number" id="prodQuantity" placeholder="예: 1000" required>
-                        </div>
-                        <div class="form-group">
-                            <label>배치번호</label>
-                            <input type="text" id="batchNumber" placeholder="예: 260309-021" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Manufacturing Date (자동)</label>
-                            <input type="text" id="prodDate" readonly placeholder="배치번호 입력 시 자동">
-                        </div>
-                        <div class="form-group">
-                            <label>단가 (자동)</label>
-                            <input type="text" id="prodUnitPrice" readonly placeholder="마스터파일에서 자동">
-                        </div>
-                        <div class="form-group">
-                            <label>금액 (자동)</label>
-                            <input type="text" id="prodSales" readonly placeholder="단가 x 생산수량">
-                        </div>
-                        <div class="form-group form-btn">
-                            <button type="submit" class="btn btn-primary">등록</button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-
-            <div class="table-container" style="margin-top:20px;">
-                <table id="productionTable">
+            <div class="table-container">
+                <table id="orderTable">
                     <thead>
                         <tr>
-                            <th>품목코드</th>
-                            <th>존슨코드</th>
-                            <th>품목명</th>
-                            <th>생산수량</th>
-                            <th>배치번호</th>
-                            <th>Manufacturing Date</th>
-                            <th>단가 (원)</th>
-                            <th>금액 (원)</th>
-                            <th>관리</th>
+                            <th>구매오더번호</th>
+                            <th>판매문서</th>
+                            <th>자재</th>
+                            <th>내역</th>
+                            <th>총오더수량</th>
                         </tr>
                     </thead>
-                    <tbody id="productionTableBody"></tbody>
+                    <tbody id="orderTableBody"></tbody>
                 </table>
-                <p class="empty-msg" id="productionEmptyMsg">등록된 생산실적이 없습니다.</p>
+                <p class="empty-msg" id="orderEmptyMsg">엑셀 파일을 업로드해주세요.</p>
+            </div>
+        </section>
+
+        <!-- 실적 입력 탭 -->
+        <section id="performance" class="tab-content">
+            <div class="section-header">
+                <h2>실적 입력</h2>
+                <div class="btn-group">
+                    <label class="btn btn-secondary">
+                        엑셀 불러오기
+                        <input type="file" id="importPerformance" accept=".xlsx,.xls,.csv" hidden>
+                    </label>
+                    <button class="btn btn-danger" id="clearPerformance">초기화</button>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table id="performanceTable">
+                    <thead>
+                        <tr>
+                            <th>판매문서</th>
+                            <th>자재</th>
+                            <th>자재내역</th>
+                            <th>배치</th>
+                            <th>가용</th>
+                            <th>품질 검사</th>
+                        </tr>
+                    </thead>
+                    <tbody id="performanceTableBody"></tbody>
+                </table>
+                <p class="empty-msg" id="performanceEmptyMsg">엑셀 파일을 업로드해주세요.</p>
+            </div>
+        </section>
+
+        <!-- ASN 탭 -->
+        <section id="asn" class="tab-content">
+            <div class="section-header">
+                <h2>ASN</h2>
+                <div class="btn-group">
+                    <button class="btn btn-secondary" id="exportAsn">엑셀 내보내기</button>
+                    <button class="btn btn-danger" id="clearAsn">초기화</button>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table id="asnTable">
+                    <thead>
+                        <tr>
+                            <th>매출월</th>
+                            <th>업로드 일자</th>
+                            <th>Cosmax Code</th>
+                            <th>PO</th>
+                            <th>Kenvue Code</th>
+                            <th>Description (Ready to release)</th>
+                            <th>Q'ty</th>
+                            <th>vendor batch no.</th>
+                            <th>manufacturing date</th>
+                            <th>Total Q'ty for RM Usage</th>
+                            <th>가격</th>
+                            <th>매출</th>
+                        </tr>
+                    </thead>
+                    <tbody id="asnTableBody"></tbody>
+                </table>
+                <p class="empty-msg" id="asnEmptyMsg">실적 입력 엑셀을 업로드하면 자동으로 생성됩니다.</p>
             </div>
         </section>
 
@@ -165,12 +190,10 @@
 
             <div class="filter-bar">
                 <div class="form-group">
-                    <label>기간 시작</label>
-                    <input type="date" id="filterStart">
-                </div>
-                <div class="form-group">
-                    <label>기간 종료</label>
-                    <input type="date" id="filterEnd">
+                    <label>매출월</label>
+                    <select id="filterSalesMonth">
+                        <option value="">전체</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>품목코드</label>
@@ -217,11 +240,12 @@
                 <table id="salesDetailTable">
                     <thead>
                         <tr>
-                            <th>품목코드</th>
-                            <th>품목명</th>
-                            <th>배치번호</th>
-                            <th>생산일자</th>
-                            <th>생산수량</th>
+                            <th>매출월</th>
+                            <th>업로드 일자</th>
+                            <th>Cosmax Code</th>
+                            <th>Kenvue Code</th>
+                            <th>Description</th>
+                            <th>Q'ty</th>
                             <th>단가 (원)</th>
                             <th>매출액 (원)</th>
                         </tr>

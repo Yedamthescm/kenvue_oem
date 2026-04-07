@@ -1,14 +1,63 @@
-// ========== 데이터 저장/로드 (localStorage) ==========
+// ========== Firebase 초기화 ==========
+const firebaseConfig = {
+    apiKey: "AIzaSyA_Km_RuNidOBA5DEOfC0WJ4c3qH0doYTc",
+    authDomain: "kenvue-oem-app.firebaseapp.com",
+    projectId: "kenvue-oem-app",
+    storageBucket: "kenvue-oem-app.firebasestorage.app",
+    messagingSenderId: "783771297702",
+    appId: "1:783771297702:web:bbd42f6fabe4ebad791167"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// ========== 데이터 저장/로드 (Firestore + localStorage 백업) ==========
 function loadData(key) {
     return JSON.parse(localStorage.getItem(key) || '[]');
 }
 
 function saveData(key, data) {
+    // localStorage 백업 (즉시 반영용)
     localStorage.setItem(key, JSON.stringify(data));
+    // Firestore 저장
+    db.collection('appData').doc(key).set({ items: data })
+        .catch(err => console.error('Firestore 저장 실패:', key, err));
+}
+
+async function loadFromFirestore(key) {
+    try {
+        const doc = await db.collection('appData').doc(key).get();
+        if (doc.exists && doc.data().items) {
+            const data = doc.data().items;
+            localStorage.setItem(key, JSON.stringify(data));
+            return data;
+        }
+    } catch (err) {
+        console.error('Firestore 로드 실패:', key, err);
+    }
+    return loadData(key);
 }
 
 let products = loadData('kenvue_products');
 let productions = loadData('kenvue_productions');
+let orders = loadData('kenvue_orders');
+let performanceData = loadData('kenvue_performance');
+let asnData = loadData('kenvue_asn');
+
+// Firestore에서 최신 데이터 불러와서 화면 갱신
+async function initFromFirestore() {
+    products = await loadFromFirestore('kenvue_products');
+    productions = await loadFromFirestore('kenvue_productions');
+    orders = await loadFromFirestore('kenvue_orders');
+    performanceData = await loadFromFirestore('kenvue_performance');
+    asnData = await loadFromFirestore('kenvue_asn');
+    renderProducts();
+    renderOrders();
+    renderPerformance();
+    renderAsn();
+}
+
+initFromFirestore();
 
 // ========== 탭 전환 ==========
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -18,13 +67,23 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.add('active');
         document.getElementById(btn.dataset.tab).classList.add('active');
 
-        if (btn.dataset.tab === 'manage') refreshProductSelect();
+        if (btn.dataset.tab === 'asn') renderAsn();
         if (btn.dataset.tab === 'sales') {
             refreshFilterProductSelect();
             updateSales();
         }
     });
 });
+
+// ========== 한국 시간 ==========
+function getKoreanDate() {
+    const now = new Date();
+    const kr = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const yyyy = kr.getFullYear();
+    const mm = String(kr.getMonth() + 1).padStart(2, '0');
+    const dd = String(kr.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+}
 
 // ========== 숫자 포맷 ==========
 function formatNumber(n) {
@@ -48,6 +107,76 @@ function formatDateDisplay(dateStr) {
     return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
 }
 
+// ========== 수주 마스터 ==========
+function renderOrders() {
+    const tbody = document.getElementById('orderTableBody');
+    const emptyMsg = document.getElementById('orderEmptyMsg');
+
+    if (orders.length === 0) {
+        tbody.innerHTML = '';
+        emptyMsg.style.display = 'block';
+        return;
+    }
+
+    emptyMsg.style.display = 'none';
+    tbody.innerHTML = orders.map(o => `
+        <tr>
+            <td>${o.purchaseOrder || '-'}</td>
+            <td>${o.salesDoc}</td>
+            <td>${o.material}</td>
+            <td>${o.description}</td>
+            <td class="text-right">${formatNumber(o.totalQty)}</td>
+        </tr>
+    `).join('');
+}
+
+document.getElementById('importOrders').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        const wb = XLSX.read(evt.target.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        // 디버깅: 시트 범위 및 첫 5행 raw 데이터 확인
+        alert('시트명: ' + wb.SheetNames[0] + '\n범위: ' + (ws['!ref'] || '없음'));
+        const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        alert('첫 5행:\n' + rawRows.slice(0, 5).map((r, i) => i + ': ' + JSON.stringify(r)).join('\n'));
+
+        let count = 0;
+        const newOrders = [];
+        data.forEach(row => {
+            const purchaseOrder = String(row['구매오더번호'] || row['Purchase Order'] || '').trim();
+            const salesDoc = String(row['판매문서'] || row['판매 문서'] || row['Sales Document'] || '').trim();
+            const material = String(row['자재'] || row['Material'] || '').trim();
+            const description = String(row['내역'] || row['Description'] || '').trim();
+            const totalQty = Number(row['총오더수량'] || row['Total Order Qty'] || 0);
+
+            if (!salesDoc && !material) return;
+
+            newOrders.push({ purchaseOrder, salesDoc, material, description, totalQty });
+            count++;
+        });
+
+        orders = newOrders;
+        saveData('kenvue_orders', orders);
+        renderOrders();
+        alert(`${count}건의 수주 데이터가 불러와졌습니다.`);
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = '';
+});
+
+document.getElementById('clearOrders').addEventListener('click', () => {
+    if (confirm('수주 데이터를 모두 초기화하시겠습니까?')) {
+        orders = [];
+        saveData('kenvue_orders', orders);
+        renderOrders();
+    }
+});
+
 // ========== 마스터파일 (품목 관리) ==========
 let editingIndex = -1;
 
@@ -67,8 +196,9 @@ function renderProducts() {
             return `
             <tr class="editing-row">
                 <td><input type="text" id="editCode" value="${p.code}" class="inline-input"></td>
+                <td><input type="text" id="editKenvueCode" value="${p.kenvueCode || ''}" class="inline-input"></td>
+                <td><input type="text" id="editDescription" value="${p.description || ''}" class="inline-input"></td>
                 <td><input type="text" id="editName" value="${p.name}" class="inline-input"></td>
-                <td><input type="text" id="editSpec" value="${p.spec || ''}" class="inline-input"></td>
                 <td><input type="number" id="editPrice" value="${p.price}" class="inline-input"></td>
                 <td>
                     <button class="btn btn-save" onclick="saveEdit(${i})">저장</button>
@@ -79,8 +209,9 @@ function renderProducts() {
         return `
         <tr>
             <td>${p.code}</td>
+            <td>${p.kenvueCode || '-'}</td>
+            <td>${p.description || '-'}</td>
             <td>${p.name}</td>
-            <td>${p.spec || '-'}</td>
             <td class="text-right">${formatNumber(p.price)}</td>
             <td>
                 <button class="btn btn-edit" onclick="startEdit(${i})">수정</button>
@@ -102,50 +233,50 @@ window.cancelEdit = function() {
 
 window.saveEdit = function(index) {
     const code = document.getElementById('editCode').value.trim();
+    const kenvueCode = document.getElementById('editKenvueCode').value.trim();
+    const description = document.getElementById('editDescription').value.trim();
     const name = document.getElementById('editName').value.trim();
-    const spec = document.getElementById('editSpec').value.trim();
     const price = Number(document.getElementById('editPrice').value);
 
     if (!code || !name || !price) {
-        alert('품목코드, 품목명, 단가는 필수입니다.');
+        alert('Cosmax Code, 품목명, 단가는 필수입니다.');
         return;
     }
 
     // 코드 변경 시 중복 체크
     const duplicate = products.findIndex((p, i) => p.code === code && i !== index);
     if (duplicate >= 0) {
-        alert('동일한 품목코드가 이미 존재합니다.');
+        alert('동일한 Cosmax Code가 이미 존재합니다.');
         return;
     }
 
-    products[index] = { code, name, spec, price };
+    products[index] = { code, kenvueCode, description, name, price };
     editingIndex = -1;
     saveData('kenvue_products', products);
     renderProducts();
-    refreshProductSelect();
 };
 
 document.getElementById('productForm').addEventListener('submit', e => {
     e.preventDefault();
     const code = document.getElementById('productCode').value.trim();
+    const kenvueCode = document.getElementById('productKenvueCode').value.trim();
+    const description = document.getElementById('productDescription').value.trim();
     const name = document.getElementById('productName').value.trim();
-    const spec = document.getElementById('productSpec').value.trim();
     const price = Number(document.getElementById('productPrice').value);
 
     const existing = products.findIndex(p => p.code === code);
     if (existing >= 0) {
-        if (confirm(`품목코드 "${code}"가 이미 존재합니다. 덮어쓰시겠습니까?`)) {
-            products[existing] = { code, name, spec, price };
+        if (confirm(`Cosmax Code "${code}"가 이미 존재합니다. 덮어쓰시겠습니까?`)) {
+            products[existing] = { code, kenvueCode, description, name, price };
         } else {
             return;
         }
     } else {
-        products.push({ code, name, spec, price });
+        products.push({ code, kenvueCode, description, name, price });
     }
 
     saveData('kenvue_products', products);
     renderProducts();
-    refreshProductSelect();
     e.target.reset();
 });
 
@@ -154,183 +285,299 @@ window.deleteProduct = function(index) {
         products.splice(index, 1);
         saveData('kenvue_products', products);
         renderProducts();
-        refreshProductSelect();
+
     }
 };
 
-// ========== 생산실적 관리 ==========
-function refreshProductSelect() {
-    const select = document.getElementById('prodProductCode');
-    const currentVal = select.value;
-    select.innerHTML = '<option value="">선택하세요</option>' +
-        products.map(p => `<option value="${p.code}">${p.code} - ${p.name}</option>`).join('');
-    select.value = currentVal;
-}
-
+// ========== 실적 입력 ==========
 function getProductByCode(code) {
     return products.find(p => p.code === code);
 }
 
-// 품목코드 선택 시 존슨코드/품목명/단가 자동 표시
-document.getElementById('prodProductCode').addEventListener('change', function() {
-    const product = getProductByCode(this.value);
-    if (product) {
-        document.getElementById('prodJohnsonCode').value = product.spec || '';
-        document.getElementById('prodProductName').value = product.name;
-        document.getElementById('prodUnitPrice').value = formatNumber(product.price) + ' 원';
-    } else {
-        document.getElementById('prodJohnsonCode').value = '';
-        document.getElementById('prodProductName').value = '';
-        document.getElementById('prodUnitPrice').value = '';
-    }
-    updatePreviewSales();
-});
-
-// 배치번호 입력 시 생산일자 자동 추출
-document.getElementById('batchNumber').addEventListener('input', e => {
-    const batch = e.target.value.trim();
-    const dateStr = parseBatchDate(batch);
-    document.getElementById('prodDate').value = dateStr || '';
-    updatePreviewSales();
-});
-
-document.getElementById('prodQuantity').addEventListener('input', updatePreviewSales);
-
-function updatePreviewSales() {
-    const code = document.getElementById('prodProductCode').value;
-    const qty = Number(document.getElementById('prodQuantity').value);
-    const product = getProductByCode(code);
-
-    if (product && qty > 0) {
-        document.getElementById('prodSales').value = formatNumber(product.price * qty) + ' 원';
-    } else {
-        document.getElementById('prodSales').value = '';
-    }
+function extractSalesDoc(specialStock) {
+    // "특별 재고 번호"에서 "/ 10"을 제외한 숫자만 추출
+    const str = String(specialStock || '');
+    const cleaned = str.replace(/\/\s*10/, '').trim();
+    return cleaned;
 }
 
-function renderProductions() {
-    const tbody = document.getElementById('productionTableBody');
-    const emptyMsg = document.getElementById('productionEmptyMsg');
+function renderPerformance() {
+    const tbody = document.getElementById('performanceTableBody');
+    const emptyMsg = document.getElementById('performanceEmptyMsg');
 
-    if (productions.length === 0) {
+    if (performanceData.length === 0) {
         tbody.innerHTML = '';
         emptyMsg.style.display = 'block';
         return;
     }
 
     emptyMsg.style.display = 'none';
-    tbody.innerHTML = productions.map((p, i) => {
-        const product = getProductByCode(p.code);
-        const productName = product ? product.name : '(삭제된 품목)';
-        const johnsonCode = product ? (product.spec || '-') : '-';
-        const price = product ? product.price : p.price;
-        const sales = price * p.quantity;
-        return `
+    tbody.innerHTML = performanceData.map(p => `
         <tr>
-            <td>${p.code}</td>
-            <td>${johnsonCode}</td>
-            <td>${productName}</td>
-            <td class="text-right">${formatNumber(p.quantity)}</td>
+            <td>${p.salesDoc}</td>
+            <td>${p.material}</td>
+            <td>${p.materialDesc}</td>
             <td>${p.batch}</td>
-            <td>${p.date}</td>
-            <td class="text-right">${formatNumber(price)}</td>
-            <td class="text-right">${formatNumber(sales)}</td>
-            <td><button class="btn btn-danger" onclick="deleteProduction(${i})">삭제</button></td>
+            <td class="text-right">${formatNumber(p.available)}</td>
+            <td>${p.qualityInspection}</td>
         </tr>
-        `;
-    }).join('');
+    `).join('');
 }
 
-document.getElementById('productionForm').addEventListener('submit', e => {
-    e.preventDefault();
-    const code = document.getElementById('prodProductCode').value;
-    const batch = document.getElementById('batchNumber').value.trim();
-    const quantity = Number(document.getElementById('prodQuantity').value);
-    const dateStr = parseBatchDate(batch);
+document.getElementById('importPerformance').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-    if (!code) { alert('품목코드를 선택하세요.'); return; }
-    if (!dateStr) { alert('배치번호 형식이 올바르지 않습니다. (예: 260309-021)'); return; }
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        const wb = XLSX.read(evt.target.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws);
 
-    const product = getProductByCode(code);
-    if (!product) { alert('마스터파일에 등록되지 않은 품목입니다.'); return; }
+        let count = 0;
+        const newData = [];
+        data.forEach(row => {
+            // A열: 특별 재고 번호 → 판매문서 (숫자만, "/ 10" 제외)
+            const specialStock = row['특별 재고 번호'] || row['Special Stock Number'] || '';
+            const salesDoc = extractSalesDoc(specialStock);
 
-    if (productions.some(p => p.code === code && p.batch === batch)) {
-        if (!confirm(`동일 품목의 배치 "${batch}"가 이미 존재합니다. 추가하시겠습니까?`)) return;
-    }
+            const material = String(row['자재'] || row['Material'] || '').trim();
+            const materialDesc = String(row['자재내역'] || row['Material Description'] || row['자재 내역'] || '').trim();
+            const batch = String(row['배치'] || row['Batch'] || '').trim();
+            const available = Number(row['가용'] || row['Available'] || 0);
+            const qualityInspection = String(row['품질 검사'] || row['Quality Inspection'] || row['품질검사'] || '').trim();
 
-    productions.push({
-        code,
-        batch,
-        date: dateStr,
-        quantity,
-        price: product.price
-    });
+            if (!salesDoc && !material) return;
 
-    saveData('kenvue_productions', productions);
-    renderProductions();
-    e.target.reset();
-    document.getElementById('prodJohnsonCode').value = '';
-    document.getElementById('prodProductName').value = '';
-    document.getElementById('prodUnitPrice').value = '';
-    document.getElementById('prodDate').value = '';
-    document.getElementById('prodSales').value = '';
+            newData.push({ salesDoc, material, materialDesc, batch, available, qualityInspection });
+            count++;
+        });
+
+        performanceData = newData;
+        saveData('kenvue_performance', performanceData);
+        renderPerformance();
+
+        // ASN 자동 생성 및 누적
+        const uploadDate = getKoreanDate();
+        const newAsnRows = [];
+        newData.forEach(perf => {
+            const matchedOrders = findOrdersBySalesDoc(perf.salesDoc);
+            const po = matchedOrders.length > 0 ? matchedOrders[0].purchaseOrder : '-';
+            const totalQty = matchedOrders.reduce((sum, o) => sum + o.totalQty, 0);
+
+            const product = findProductByMaterial(perf.material);
+            const cosmaxCode = product ? product.code : '-';
+            const kenvueCode = product ? (product.kenvueCode || '-') : '-';
+            const description = product ? (product.description || '-') : '-';
+            const price = product ? product.price : 0;
+
+            const qualityQty = Number(perf.qualityInspection) || 0;
+            const qty = perf.available + qualityQty;
+            const vendorBatch = normalizeBatch(perf.batch, perf.material);
+            const mfgDateRaw = vendorBatch !== 'N/A' ? parseBatchDate(vendorBatch) : '';
+            const mfgDate = mfgDateRaw ? formatDateDisplay(mfgDateRaw) : 'N/A';
+            const sales = price * qty;
+
+            const salesMonth = uploadDate.substring(2, 4) + '년 ' + Number(uploadDate.substring(5, 7)) + '월';
+
+            newAsnRows.push({
+                salesMonth, uploadDate, cosmaxCode, po, kenvueCode, description,
+                qty, vendorBatch, mfgDate, totalQty, price, sales
+            });
+        });
+
+        asnData = asnData.concat(newAsnRows);
+        saveData('kenvue_asn', asnData);
+        renderAsn();
+        alert(`${count}건의 실적 데이터가 불러와졌습니다. (ASN ${newAsnRows.length}건 추가)`);
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = '';
 });
 
-window.deleteProduction = function(index) {
-    if (confirm('이 생산실적을 삭제하시겠습니까?')) {
-        productions.splice(index, 1);
-        saveData('kenvue_productions', productions);
-        renderProductions();
+document.getElementById('clearPerformance').addEventListener('click', () => {
+    if (confirm('실적 데이터를 모두 초기화하시겠습니까?')) {
+        performanceData = [];
+        saveData('kenvue_performance', performanceData);
+        renderPerformance();
     }
+});
+
+// ========== 배치번호 정규화 ==========
+const SPECIAL_BATCH_MATERIALS = ['9NTG0051110', '9NTG0051020', '9NTG0051230', '9JNJ0020510', '9JNJ0020910'];
+
+function normalizeBatch(batch, material) {
+    const str = String(batch || '').trim();
+
+    // 특수 품목: DDMMYYYYNN (10자리) → YYMMDD-NNN
+    if (material && SPECIAL_BATCH_MATERIALS.includes(material)) {
+        // 이미 YYMMDD-NNN 형태
+        if (/^\d{6}-\d{3}$/.test(str)) return str;
+
+        if (/^\d{10}$/.test(str)) {
+            const dd = str.substring(0, 2);
+            const mm = str.substring(2, 4);
+            const yy = str.substring(6, 8);
+            const nn = str.substring(8, 10);
+            return yy + mm + dd + '-' + nn.padStart(3, '0');
+        }
+
+        return 'N/A';
+    }
+
+    // 기본 로직: 이미 YYMMDD-NNN 형태
+    if (/^\d{6}-\d{3}$/.test(str)) return str;
+
+    // 9자리 숫자 → YYMMDD-NNN (예: 260309021 → 260309-021)
+    if (/^\d{9}$/.test(str)) {
+        return str.substring(0, 6) + '-' + str.substring(6, 9);
+    }
+
+    return 'N/A';
+}
+
+// ========== ASN ==========
+function findProductByMaterial(materialCode) {
+    // 실적 입력의 자재를 기준으로 품목 마스터에서 매칭 (Kenvue Code 또는 Cosmax Code)
+    return products.find(p => p.kenvueCode === materialCode || p.code === materialCode);
+}
+
+function findOrdersBySalesDoc(salesDoc) {
+    // 판매문서를 기준으로 수주 마스터에서 모든 매칭 행 반환
+    return orders.filter(o => o.salesDoc === salesDoc);
+}
+
+function renderAsn() {
+    const tbody = document.getElementById('asnTableBody');
+    const emptyMsg = document.getElementById('asnEmptyMsg');
+
+    if (asnData.length === 0) {
+        tbody.innerHTML = '';
+        emptyMsg.style.display = 'block';
+        return;
+    }
+
+    emptyMsg.style.display = 'none';
+    tbody.innerHTML = asnData.map((row, i) => `
+        <tr>
+            <td class="editable-cell" onclick="editSalesMonth(${i})" title="클릭하여 수정">${row.salesMonth || ''}</td>
+            <td>${row.uploadDate}</td>
+            <td>${row.cosmaxCode}</td>
+            <td>${row.po}</td>
+            <td>${row.kenvueCode}</td>
+            <td>${row.description}</td>
+            <td class="text-right">${formatNumber(row.qty)}</td>
+            <td>${row.vendorBatch}</td>
+            <td>${row.mfgDate}</td>
+            <td class="text-right">${formatNumber(row.totalQty)}</td>
+            <td class="text-right">${formatNumber(row.price)}</td>
+            <td class="text-right">${formatNumber(row.sales)}</td>
+        </tr>`).join('');
+}
+
+window.editSalesMonth = function(index) {
+    const row = asnData[index];
+    const td = document.querySelectorAll('#asnTableBody tr')[index].children[0];
+    const currentValue = row.salesMonth || '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentValue;
+    input.placeholder = '예: 26년 1월';
+    input.className = 'inline-input';
+    input.style.width = '100px';
+    td.textContent = '';
+    td.appendChild(input);
+    input.focus();
+
+    function save() {
+        const newValue = input.value.trim();
+        asnData[index].salesMonth = newValue;
+        saveData('kenvue_asn', asnData);
+        renderAsn();
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') renderAsn();
+    });
 };
+
+document.getElementById('clearAsn').addEventListener('click', () => {
+    if (confirm('ASN 데이터를 모두 초기화하시겠습니까?')) {
+        asnData = [];
+        saveData('kenvue_asn', asnData);
+        renderAsn();
+    }
+});
+
+document.getElementById('exportAsn').addEventListener('click', () => {
+    const data = asnData.map(row => ({
+        '매출월': row.salesMonth || '',
+        '업로드 일자': row.uploadDate,
+        'Cosmax Code': row.cosmaxCode,
+        'PO': row.po,
+        'Kenvue Code': row.kenvueCode,
+        'Description (Ready to release)': row.description,
+        "Q'ty": row.qty,
+        'vendor batch no.': row.vendorBatch,
+        'manufacturing date': row.mfgDate,
+        "Total Q'ty for RM Usage": row.totalQty,
+        '가격': row.price,
+        '매출': row.sales
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'ASN');
+    XLSX.writeFile(wb, '켄뷰_ASN.xlsx');
+});
 
 // ========== 매출 현황 ==========
 function refreshFilterProductSelect() {
     const select = document.getElementById('filterProduct');
     select.innerHTML = '<option value="">전체</option>' +
         products.map(p => `<option value="${p.code}">${p.code} - ${p.name}</option>`).join('');
+
+    // 매출월 필터 드롭다운 갱신
+    const monthSelect = document.getElementById('filterSalesMonth');
+    const months = [...new Set(asnData.map(r => r.salesMonth).filter(m => m))];
+    monthSelect.innerHTML = '<option value="">전체</option>' +
+        months.map(m => `<option value="${m}">${m}</option>`).join('');
 }
 
 function updateSales() {
-    const startStr = document.getElementById('filterStart').value;
-    const endStr = document.getElementById('filterEnd').value;
+    const filterMonth = document.getElementById('filterSalesMonth').value;
     const filterCode = document.getElementById('filterProduct').value;
 
-    const start = startStr ? startStr.replace(/-/g, '') : '';
-    const end = endStr ? endStr.replace(/-/g, '') : '';
-
-    let filtered = productions.filter(p => {
-        if (filterCode && p.code !== filterCode) return false;
-        if (start && p.date < start) return false;
-        if (end && p.date > end) return false;
+    // ASN 데이터 기준으로 필터링 (매출월 기준)
+    let filtered = asnData.filter(row => {
+        if (filterCode && row.cosmaxCode !== filterCode) return false;
+        if (filterMonth && row.salesMonth !== filterMonth) return false;
         return true;
     });
 
     const summary = {};
-    let totalSales = 0;
+    let totalSalesAmt = 0;
     let totalQty = 0;
 
-    filtered.forEach(p => {
-        const product = getProductByCode(p.code);
-        const price = product ? product.price : p.price;
-        const sales = price * p.quantity;
-
-        if (!summary[p.code]) {
-            summary[p.code] = {
-                code: p.code,
-                name: product ? product.name : '(삭제된 품목)',
+    filtered.forEach(row => {
+        if (!summary[row.cosmaxCode]) {
+            summary[row.cosmaxCode] = {
+                code: row.cosmaxCode,
+                kenvueCode: row.kenvueCode,
+                description: row.description,
                 quantity: 0,
-                price: price,
+                price: row.price,
                 sales: 0
             };
         }
-        summary[p.code].quantity += p.quantity;
-        summary[p.code].sales += sales;
-        totalSales += sales;
-        totalQty += p.quantity;
+        summary[row.cosmaxCode].quantity += row.qty;
+        summary[row.cosmaxCode].sales += row.sales;
+        totalSalesAmt += row.sales;
+        totalQty += row.qty;
     });
 
-    document.getElementById('totalSales').textContent = formatNumber(totalSales) + ' 원';
+    document.getElementById('totalSales').textContent = formatNumber(totalSalesAmt) + ' 원';
     document.getElementById('totalQuantity').textContent = formatNumber(totalQty) + ' 개';
     document.getElementById('totalProducts').textContent = Object.keys(summary).length + ' 건';
 
@@ -338,7 +585,7 @@ function updateSales() {
     summaryBody.innerHTML = Object.values(summary).map(s => `
         <tr>
             <td>${s.code}</td>
-            <td>${s.name}</td>
+            <td>${s.description}</td>
             <td class="text-right">${formatNumber(s.quantity)}</td>
             <td class="text-right">${formatNumber(s.price)}</td>
             <td class="text-right">${formatNumber(s.sales)}</td>
@@ -346,21 +593,18 @@ function updateSales() {
     `).join('');
 
     const detailBody = document.getElementById('salesDetailBody');
-    detailBody.innerHTML = filtered.map(p => {
-        const product = getProductByCode(p.code);
-        const price = product ? product.price : p.price;
-        return `
+    detailBody.innerHTML = filtered.map(row => `
         <tr>
-            <td>${p.code}</td>
-            <td>${product ? product.name : '(삭제된 품목)'}</td>
-            <td>${p.batch}</td>
-            <td>${formatDateDisplay(p.date)}</td>
-            <td class="text-right">${formatNumber(p.quantity)}</td>
-            <td class="text-right">${formatNumber(price)}</td>
-            <td class="text-right">${formatNumber(price * p.quantity)}</td>
+            <td>${row.salesMonth || ''}</td>
+            <td>${row.uploadDate}</td>
+            <td>${row.cosmaxCode}</td>
+            <td>${row.kenvueCode}</td>
+            <td>${row.description}</td>
+            <td class="text-right">${formatNumber(row.qty)}</td>
+            <td class="text-right">${formatNumber(row.price)}</td>
+            <td class="text-right">${formatNumber(row.sales)}</td>
         </tr>
-        `;
-    }).join('');
+    `).join('');
 }
 
 document.getElementById('filterBtn').addEventListener('click', updateSales);
@@ -379,25 +623,26 @@ document.getElementById('importProducts').addEventListener('change', e => {
 
         let count = 0;
         data.forEach(row => {
-            const code = String(row['품목코드'] || row['code'] || '').trim();
+            const code = String(row['Cosmax Code'] || row['품목코드'] || row['code'] || '').trim();
+            const kenvueCode = String(row['Kenvue Code'] || row['존슨코드'] || '').trim();
+            const description = String(row['Description (Ready to release)'] || row['Description'] || '').trim();
             const name = String(row['품목명'] || row['name'] || '').trim();
-            const spec = String(row['존슨코드'] || row['spec'] || '').trim();
             const price = Number(row['단가'] || row['price'] || 0);
 
             if (!code || !name || !price) return;
 
             const existing = products.findIndex(p => p.code === code);
             if (existing >= 0) {
-                products[existing] = { code, name, spec, price };
+                products[existing] = { code, kenvueCode, description, name, price };
             } else {
-                products.push({ code, name, spec, price });
+                products.push({ code, kenvueCode, description, name, price });
             }
             count++;
         });
 
         saveData('kenvue_products', products);
         renderProducts();
-        refreshProductSelect();
+
         alert(`${count}건의 품목이 불러와졌습니다.`);
     };
     reader.readAsBinaryString(file);
@@ -406,71 +651,16 @@ document.getElementById('importProducts').addEventListener('change', e => {
 
 document.getElementById('exportProducts').addEventListener('click', () => {
     const data = products.map(p => ({
-        '품목코드': p.code,
+        'Cosmax Code': p.code,
+        'Kenvue Code': p.kenvueCode || '',
+        'Description (Ready to release)': p.description || '',
         '품목명': p.name,
-        '존슨코드': p.spec,
         '단가': p.price
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '마스터파일');
-    XLSX.writeFile(wb, '켄뷰_마스터파일.xlsx');
-});
-
-document.getElementById('importProduction').addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        const wb = XLSX.read(evt.target.result, { type: 'binary' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws);
-
-        let count = 0;
-        data.forEach(row => {
-            const code = String(row['품목코드'] || row['code'] || '').trim();
-            const batch = String(row['배치번호'] || row['batch'] || '').trim();
-            const quantity = Number(row['생산수량'] || row['quantity'] || 0);
-
-            if (!code || !batch || !quantity) return;
-
-            const dateStr = parseBatchDate(batch);
-            if (!dateStr) return;
-
-            const product = getProductByCode(code);
-            const price = product ? product.price : 0;
-
-            productions.push({ code, batch, date: dateStr, quantity, price });
-            count++;
-        });
-
-        saveData('kenvue_productions', productions);
-        renderProductions();
-        alert(`${count}건의 생산실적이 불러와졌습니다.`);
-    };
-    reader.readAsBinaryString(file);
-    e.target.value = '';
-});
-
-document.getElementById('exportProduction').addEventListener('click', () => {
-    const data = productions.map(p => {
-        const product = getProductByCode(p.code);
-        const price = product ? product.price : p.price;
-        return {
-            '품목코드': p.code,
-            '품목명': product ? product.name : '',
-            '배치번호': p.batch,
-            '생산일자': formatDateDisplay(p.date),
-            '생산수량': p.quantity,
-            '단가': price,
-            '매출액': price * p.quantity
-        };
-    });
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '생산실적');
-    XLSX.writeFile(wb, '켄뷰_생산실적.xlsx');
+    XLSX.utils.book_append_sheet(wb, ws, '품목마스터');
+    XLSX.writeFile(wb, '켄뷰_품목마스터.xlsx');
 });
 
 document.getElementById('exportSales').addEventListener('click', () => {
@@ -496,5 +686,6 @@ document.getElementById('exportSales').addEventListener('click', () => {
 
 // ========== 초기 렌더링 ==========
 renderProducts();
-refreshProductSelect();
-renderProductions();
+renderOrders();
+renderPerformance();
+renderAsn();

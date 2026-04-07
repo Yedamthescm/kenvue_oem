@@ -350,3 +350,13 @@ tbody tr:hover {
         min-width: 100%;
     }
 }
+
+.editable-cell {
+    cursor: pointer;
+    background: #fffde7;
+    min-width: 90px;
+}
+
+.editable-cell:hover {
+    background: #fff9c4;
+}
