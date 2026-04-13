@@ -501,9 +501,27 @@ function findOrdersBySalesDoc(salesDoc) {
     return orders.filter(o => o.salesDoc === salesDoc);
 }
 
+function deduplicateAsn() {
+    const seen = new Set();
+    const before = asnData.length;
+    asnData = asnData.filter(row => {
+        if (row.vendorBatch === 'N/A') return true;
+        const key = row.cosmaxCode + '|' + row.vendorBatch;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+    if (asnData.length < before) {
+        saveData('kenvue_asn', asnData);
+    }
+}
+
 function renderAsn() {
     const tbody = document.getElementById('asnTableBody');
     const emptyMsg = document.getElementById('asnEmptyMsg');
+
+    // 기존 데이터 중복 제거 (N/A 제외)
+    deduplicateAsn();
 
     if (asnData.length === 0) {
         tbody.innerHTML = '';
