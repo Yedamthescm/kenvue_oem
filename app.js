@@ -381,7 +381,14 @@ document.getElementById('importPerformance').addEventListener('change', e => {
             const qualityQty = Number(perf.qualityInspection) || 0;
             const qty = perf.available + qualityQty;
             const vendorBatch = normalizeBatch(perf.batch, perf.material);
-            const mfgDateRaw = vendorBatch !== 'N/A' ? parseBatchDate(vendorBatch) : '';
+            let mfgDateRaw = '';
+            if (vendorBatch !== 'N/A') {
+                if (perf.material && YMX_BATCH_MATERIALS.includes(perf.material)) {
+                    mfgDateRaw = parseYmxBatchDate(vendorBatch);
+                } else {
+                    mfgDateRaw = parseBatchDate(vendorBatch);
+                }
+            }
             const mfgDate = mfgDateRaw ? formatDateDisplay(mfgDateRaw) : 'N/A';
             const sales = price * qty;
 
@@ -460,8 +467,17 @@ document.getElementById('clearPerformance').addEventListener('click', () => {
 // ========== 배치번호 정규화 ==========
 const SPECIAL_BATCH_MATERIALS = ['9NTG0051110', '9NTG0051020', '9NTG0051230', '9JNJ0020510', '9JNJ0020910'];
 
+// YMX 형식 배치 품목 (Y=연도끝자리, M=월알파벳A~L, X=충진순서)
+const YMX_BATCH_MATERIALS = ['9JNJ0020810'];
+
 function normalizeBatch(batch, material) {
     const str = String(batch || '').trim();
+
+    // YMX 형식 품목 (예: 6C1 = 2026년 3월 첫 충진)
+    if (material && YMX_BATCH_MATERIALS.includes(material)) {
+        if (/^\d[A-L][0-9A-C]$/i.test(str)) return str.toUpperCase();
+        return 'N/A';
+    }
 
     // 특수 품목: DDMMYYYYNN (10자리) → YYMMDD-NNN
     if (material && SPECIAL_BATCH_MATERIALS.includes(material)) {
@@ -488,6 +504,18 @@ function normalizeBatch(batch, material) {
     }
 
     return 'N/A';
+}
+
+// YMX 배치 → 제조일자 (YYYYMM01)
+function parseYmxBatchDate(batch) {
+    const str = String(batch || '').trim().toUpperCase();
+    if (!/^\d[A-L][0-9A-C]$/.test(str)) return '';
+    const y = parseInt(str[0]);
+    const baseYear = 2020 + y; // 0=2020, 1=2021, ..., 9=2029 (이후 순환)
+    const monthMap = { A:'01', B:'02', C:'03', D:'04', E:'05', F:'06', G:'07', H:'08', I:'09', J:'10', K:'11', L:'12' };
+    const mm = monthMap[str[1]];
+    if (!mm) return '';
+    return String(baseYear) + mm + '01';
 }
 
 // ========== ASN ==========
