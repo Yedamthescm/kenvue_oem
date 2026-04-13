@@ -319,17 +319,43 @@ function renderPerformance() {
     }
 
     emptyMsg.style.display = 'none';
-    tbody.innerHTML = performanceData.map(p => `
+    tbody.innerHTML = performanceData.map((p, i) => `
         <tr>
             <td>${p.salesDoc}</td>
             <td>${p.material}</td>
             <td>${p.materialDesc}</td>
-            <td>${p.batch}</td>
+            <td class="editable-cell" onclick="editPerfBatch(${i})" title="클릭하여 배치 수정">${p.batch}</td>
             <td class="text-right">${formatNumber(p.available)}</td>
             <td>${p.qualityInspection}</td>
         </tr>
     `).join('');
 }
+
+window.editPerfBatch = function(index) {
+    const row = performanceData[index];
+    const td = document.querySelectorAll('#performanceTableBody tr')[index].children[3];
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = row.batch;
+    input.className = 'inline-input';
+    input.style.width = '120px';
+    td.textContent = '';
+    td.appendChild(input);
+    input.focus();
+
+    function save() {
+        const newValue = input.value.trim();
+        performanceData[index].batch = newValue;
+        saveData('kenvue_performance', performanceData);
+        renderPerformance();
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') renderPerformance();
+    });
+};
 
 document.getElementById('importPerformance').addEventListener('change', e => {
     const file = e.target.files[0];
@@ -454,6 +480,96 @@ document.getElementById('importPerformance').addEventListener('change', e => {
     };
     reader.readAsBinaryString(file);
     e.target.value = '';
+});
+
+document.getElementById('savePerformance').addEventListener('click', () => {
+    if (performanceData.length === 0) {
+        alert('저장할 실적 데이터가 없습니다.');
+        return;
+    }
+
+    const uploadDate = getKoreanDate();
+    const newAsnRows = [];
+    performanceData.forEach(perf => {
+        const matchedOrders = findOrdersBySalesDoc(perf.salesDoc);
+        const po = matchedOrders.length > 0 ? matchedOrders[0].purchaseOrder : '-';
+        const totalQty = matchedOrders.reduce((sum, o) => sum + o.totalQty, 0);
+
+        const product = findProductByMaterial(perf.material);
+        const cosmaxCode = product ? product.code : '-';
+        const kenvueCode = product ? (product.kenvueCode || '-') : '-';
+        const description = product ? (product.description || '-') : '-';
+        const price = product ? product.price : 0;
+
+        const qualityQty = Number(perf.qualityInspection) || 0;
+        const qty = perf.available + qualityQty;
+        const vendorBatch = normalizeBatch(perf.batch, perf.material);
+        let mfgDateRaw = '';
+        if (vendorBatch !== 'N/A') {
+            if (perf.material && YMX_BATCH_MATERIALS.includes(perf.material)) {
+                mfgDateRaw = parseYmxBatchDate(vendorBatch);
+            } else {
+                mfgDateRaw = parseBatchDate(vendorBatch);
+            }
+        }
+        const mfgDate = mfgDateRaw ? formatDateDisplay(mfgDateRaw) : 'N/A';
+        const sales = price * qty;
+        const salesMonth = uploadDate.substring(2, 4) + '년 ' + Number(uploadDate.substring(5, 7)) + '월';
+
+        newAsnRows.push({
+            salesMonth, uploadDate, cosmaxCode, po, kenvueCode, description,
+            qty, vendorBatch, mfgDate, totalQty, price, sales
+        });
+    });
+
+    let addedCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    newAsnRows.forEach(newRow => {
+        if (newRow.vendorBatch === 'N/A') {
+            const dupNa = asnData.some(existing =>
+                existing.cosmaxCode === newRow.cosmaxCode &&
+                existing.qty === newRow.qty &&
+                existing.vendorBatch === 'N/A'
+            );
+            if (dupNa) {
+                skippedCount++;
+            } else {
+                asnData.push(newRow);
+                addedCount++;
+            }
+        } else {
+            const existingIdx = asnData.findIndex(existing =>
+                existing.vendorBatch === newRow.vendorBatch &&
+                existing.cosmaxCode === newRow.cosmaxCode
+            );
+
+            if (existingIdx >= 0) {
+                // 같은 배치가 있으면 최신 데이터로 업데이트
+                asnData[existingIdx] = newRow;
+                updatedCount++;
+            } else {
+                const naIndex = asnData.findIndex(existing =>
+                    existing.vendorBatch === 'N/A' &&
+                    existing.cosmaxCode === newRow.cosmaxCode &&
+                    existing.qty === newRow.qty
+                );
+
+                if (naIndex >= 0) {
+                    asnData[naIndex] = newRow;
+                    updatedCount++;
+                } else {
+                    asnData.push(newRow);
+                    addedCount++;
+                }
+            }
+        }
+    });
+
+    saveData('kenvue_asn', asnData);
+    renderAsn();
+    alert(`ASN 반영 완료: ${addedCount}건 추가, ${updatedCount}건 업데이트, ${skippedCount}건 중복 스킵`);
 });
 
 document.getElementById('clearPerformance').addEventListener('click', () => {
