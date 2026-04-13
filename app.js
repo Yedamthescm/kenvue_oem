@@ -393,10 +393,49 @@ document.getElementById('importPerformance').addEventListener('change', e => {
             });
         });
 
-        asnData = asnData.concat(newAsnRows);
+        // 배치 기준 중복 처리
+        let addedCount = 0;
+        let updatedCount = 0;
+        let skippedCount = 0;
+
+        newAsnRows.forEach(newRow => {
+            if (newRow.vendorBatch === 'N/A') {
+                // N/A는 항상 추가
+                asnData.push(newRow);
+                addedCount++;
+            } else {
+                // 기존 N/A 행 중 같은 cosmaxCode가 있으면 배치 정보 업데이트
+                const naIndex = asnData.findIndex(existing =>
+                    existing.vendorBatch === 'N/A' &&
+                    existing.cosmaxCode === newRow.cosmaxCode &&
+                    existing.qty === newRow.qty
+                );
+
+                if (naIndex >= 0) {
+                    // N/A 행을 배치 정보로 업데이트
+                    asnData[naIndex].vendorBatch = newRow.vendorBatch;
+                    asnData[naIndex].mfgDate = newRow.mfgDate;
+                    updatedCount++;
+                } else {
+                    // 같은 배치가 이미 존재하면 스킵 (이전 기록 유지)
+                    const duplicate = asnData.some(existing =>
+                        existing.vendorBatch === newRow.vendorBatch &&
+                        existing.cosmaxCode === newRow.cosmaxCode
+                    );
+
+                    if (duplicate) {
+                        skippedCount++;
+                    } else {
+                        asnData.push(newRow);
+                        addedCount++;
+                    }
+                }
+            }
+        });
+
         saveData('kenvue_asn', asnData);
         renderAsn();
-        alert(`${count}건의 실적 데이터가 불러와졌습니다. (ASN ${newAsnRows.length}건 추가)`);
+        alert(`${count}건의 실적 데이터가 불러와졌습니다.\nASN: ${addedCount}건 추가, ${updatedCount}건 업데이트, ${skippedCount}건 중복 스킵`);
     };
     reader.readAsBinaryString(file);
     e.target.value = '';
@@ -618,14 +657,25 @@ function updateSales() {
         </tr>
     `).join('');
 
+    // 배치 기준 중복 제거 (ASN 탭과 동일하게)
+    const seen = new Set();
+    const deduped = filtered.filter(row => {
+        if (row.vendorBatch === 'N/A') return true;
+        const key = row.cosmaxCode + '|' + row.vendorBatch;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
     const detailBody = document.getElementById('salesDetailBody');
-    detailBody.innerHTML = filtered.map(row => `
+    detailBody.innerHTML = deduped.map(row => `
         <tr>
             <td>${row.salesMonth || ''}</td>
             <td>${row.uploadDate}</td>
             <td>${row.cosmaxCode}</td>
             <td>${row.kenvueCode}</td>
             <td>${row.description}</td>
+            <td>${row.vendorBatch || '-'}</td>
             <td class="text-right">${formatNumber(row.qty)}</td>
             <td class="text-right">${formatNumber(row.price)}</td>
             <td class="text-right">${formatNumber(row.sales)}</td>
