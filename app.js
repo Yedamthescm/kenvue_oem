@@ -400,31 +400,39 @@ document.getElementById('importPerformance').addEventListener('change', e => {
 
         newAsnRows.forEach(newRow => {
             if (newRow.vendorBatch === 'N/A') {
-                // N/A는 항상 추가
-                asnData.push(newRow);
-                addedCount++;
-            } else {
-                // 기존 N/A 행 중 같은 cosmaxCode가 있으면 배치 정보 업데이트
-                const naIndex = asnData.findIndex(existing =>
-                    existing.vendorBatch === 'N/A' &&
+                // N/A도 같은 cosmaxCode + qty가 이미 있으면 스킵
+                const dupNa = asnData.some(existing =>
                     existing.cosmaxCode === newRow.cosmaxCode &&
-                    existing.qty === newRow.qty
+                    existing.qty === newRow.qty &&
+                    existing.vendorBatch === 'N/A'
+                );
+                if (dupNa) {
+                    skippedCount++;
+                } else {
+                    asnData.push(newRow);
+                    addedCount++;
+                }
+            } else {
+                // 같은 cosmaxCode + vendorBatch가 이미 존재하면 스킵
+                const duplicate = asnData.some(existing =>
+                    existing.vendorBatch === newRow.vendorBatch &&
+                    existing.cosmaxCode === newRow.cosmaxCode
                 );
 
-                if (naIndex >= 0) {
-                    // N/A 행을 배치 정보로 업데이트
-                    asnData[naIndex].vendorBatch = newRow.vendorBatch;
-                    asnData[naIndex].mfgDate = newRow.mfgDate;
-                    updatedCount++;
+                if (duplicate) {
+                    skippedCount++;
                 } else {
-                    // 같은 배치가 이미 존재하면 스킵 (이전 기록 유지)
-                    const duplicate = asnData.some(existing =>
-                        existing.vendorBatch === newRow.vendorBatch &&
-                        existing.cosmaxCode === newRow.cosmaxCode
+                    // 기존 N/A 행 중 같은 cosmaxCode + qty가 있으면 배치 정보 업데이트
+                    const naIndex = asnData.findIndex(existing =>
+                        existing.vendorBatch === 'N/A' &&
+                        existing.cosmaxCode === newRow.cosmaxCode &&
+                        existing.qty === newRow.qty
                     );
 
-                    if (duplicate) {
-                        skippedCount++;
+                    if (naIndex >= 0) {
+                        asnData[naIndex].vendorBatch = newRow.vendorBatch;
+                        asnData[naIndex].mfgDate = newRow.mfgDate;
+                        updatedCount++;
                     } else {
                         asnData.push(newRow);
                         addedCount++;
@@ -577,7 +585,16 @@ document.getElementById('clearAsn').addEventListener('click', () => {
 });
 
 document.getElementById('exportAsn').addEventListener('click', () => {
-    const data = asnData.map(row => ({
+    // 내보내기 시 cosmaxCode + vendorBatch 기준 중복 제거
+    const seen = new Set();
+    const dedupedAsn = asnData.filter(row => {
+        if (row.vendorBatch === 'N/A') return true;
+        const key = row.cosmaxCode + '|' + row.vendorBatch;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+    const data = dedupedAsn.map(row => ({
         '매출월': row.salesMonth || '',
         '업로드 일자': row.uploadDate,
         'Cosmax Code': row.cosmaxCode,
