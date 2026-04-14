@@ -325,6 +325,7 @@ function renderPerformance() {
             <td>${p.material}</td>
             <td>${p.materialDesc}</td>
             <td class="editable-cell" onclick="editPerfBatch(${i})" title="클릭하여 배치 수정">${p.batch}</td>
+            <td class="editable-cell" onclick="editPerfMfgDate(${i})" title="클릭하여 제조일 수정">${p.manufacturedDate || ''}</td>
             <td class="text-right">${formatNumber(p.available)}</td>
             <td>${p.qualityInspection}</td>
         </tr>
@@ -346,6 +347,32 @@ window.editPerfBatch = function(index) {
     function save() {
         const newValue = input.value.trim();
         performanceData[index].batch = newValue;
+        saveData('kenvue_performance', performanceData);
+        renderPerformance();
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') renderPerformance();
+    });
+};
+
+window.editPerfMfgDate = function(index) {
+    const row = performanceData[index];
+    const td = document.querySelectorAll('#performanceTableBody tr')[index].children[4];
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = row.manufacturedDate || '';
+    input.className = 'inline-input';
+    input.style.width = '120px';
+    td.textContent = '';
+    td.appendChild(input);
+    input.focus();
+
+    function save() {
+        const newValue = input.value.trim();
+        performanceData[index].manufacturedDate = newValue;
         saveData('kenvue_performance', performanceData);
         renderPerformance();
     }
@@ -382,7 +409,8 @@ document.getElementById('importPerformance').addEventListener('change', e => {
 
             if (!salesDoc && !material) return;
 
-            newData.push({ salesDoc, material, materialDesc, batch, available, qualityInspection });
+            const manufacturedDate = String(row['Manufactured Date'] || row['manufactured date'] || '').trim();
+            newData.push({ salesDoc, material, materialDesc, batch, manufacturedDate, available, qualityInspection });
             count++;
         });
 
