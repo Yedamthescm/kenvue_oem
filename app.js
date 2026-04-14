@@ -409,7 +409,16 @@ document.getElementById('importPerformance').addEventListener('change', e => {
 
             if (!salesDoc && !material) return;
 
-            const manufacturedDate = String(row['Manufactured Date'] || row['manufactured date'] || '').trim();
+            const vendorBatch = normalizeBatch(batch, material);
+            let mfgDateRaw = '';
+            if (vendorBatch !== 'N/A') {
+                if (material && YMX_BATCH_MATERIALS.includes(material)) {
+                    mfgDateRaw = parseYmxBatchDate(vendorBatch);
+                } else {
+                    mfgDateRaw = parseBatchDate(vendorBatch);
+                }
+            }
+            const manufacturedDate = mfgDateRaw ? formatDateDisplay(mfgDateRaw) : '';
             newData.push({ salesDoc, material, materialDesc, batch, manufacturedDate, available, qualityInspection });
             count++;
         });
