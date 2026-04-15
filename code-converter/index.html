@@ -366,13 +366,15 @@
                     if (cosmaxIdx === -1) cosmaxIdx = 0;
                     if (kenvueIdx === -1) kenvueIdx = 1;
 
+                    const seen = {};
                     for (let r = 1; r < data.length; r++) {
                         const row = data[r];
                         if (!row || !row[kenvueIdx]) continue;
                         const kenvueCode = String(row[kenvueIdx]).trim();
                         const cosmaxCode = String(row[cosmaxIdx] || '').trim();
                         const name = row.length > 2 ? String(row[2] || '').trim() : '';
-                        if (kenvueCode) {
+                        if (kenvueCode && !seen[kenvueCode]) {
+                            seen[kenvueCode] = true;
                             masterMap[kenvueCode] = { cosmax: cosmaxCode, name: name };
                             masterRawData.push({ cosmax: cosmaxCode, kenvue: kenvueCode, name: name });
                         }
