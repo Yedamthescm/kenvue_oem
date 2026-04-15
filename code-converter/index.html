@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>원료코드 변환기 (켄뷰 → 코스맥스)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', -apple-system, sans-serif;
+            background: #f0f2f5;
+            color: #333;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a73e8, #0d47a1);
+            color: white;
+            padding: 24px 32px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .header h1 { font-size: 22px; font-weight: 600; }
+        .header p { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+        .container {
+            max-width: 1200px;
+            margin: 24px auto;
+            padding: 0 24px;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .card h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card h2 .step {
+            background: #1a73e8;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 32px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .upload-area:hover, .upload-area.dragover {
+            border-color: #1a73e8;
+            background: #e8f0fe;
+        }
+        .upload-area input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .upload-area .icon { font-size: 36px; margin-bottom: 8px; }
+        .upload-area p { font-size: 14px; color: #666; }
+        .upload-status {
+            margin-top: 12px;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: none;
+        }
+        .upload-status.success {
+            display: block;
+            background: #e6f4ea;
+            color: #1e7e34;
+        }
+        .upload-status.error {
+            display: block;
+            background: #fce8e6;
+            color: #c5221f;
+        }
+        .paste-area {
+            width: 100%;
+            min-height: 200px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.2s;
+            white-space: pre;
+            overflow-x: auto;
+        }
+        .paste-area:focus { border-color: #1a73e8; }
+        .paste-area:empty::before {
+            content: '여기에 표를 붙여넣기 하세요 (Ctrl+V)\n엑셀, 웹페이지 등에서 복사한 표 데이터를 그대로 붙여넣으면 됩니다.';
+            color: #aaa;
+            white-space: pre-line;
+        }
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #1a73e8;
+            color: white;
+        }
+        .btn-primary:hover { background: #1557b0; }
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            background: #f1f3f4;
+            color: #333;
+        }
+        .btn-secondary:hover { background: #e0e2e3; }
+        .btn-success {
+            background: #1e7e34;
+            color: white;
+        }
+        .btn-success:hover { background: #166b29; }
+        .result-wrapper {
+            overflow-x: auto;
+            margin-top: 12px;
+        }
+        #resultTable {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        #resultTable th, #resultTable td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: left;
+            white-space: nowrap;
+        }
+        #resultTable th {
+            background: #f8f9fa;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+        #resultTable tr:hover { background: #f5f7ff; }
+        .col-cosmax {
+            background: #e8f0fe !important;
+            color: #1a73e8;
+            font-weight: 600;
+        }
+        .col-notfound {
+            background: #fce8e6 !important;
+            color: #c5221f;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+        .stat-item {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .stat-total { background: #e8f0fe; color: #1a73e8; }
+        .stat-matched { background: #e6f4ea; color: #1e7e34; }
+        .stat-unmatched { background: #fce8e6; color: #c5221f; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>원료코드 변환기</h1>
+        <p>켄뷰(존슨) 코드 → 코스맥스 코드 자동 변환</p>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h2><span class="step">1</span> 마스터파일 업로드</h2>
+            <div class="upload-area" id="uploadArea">
+                <input type="file" id="masterFile" accept=".xlsx,.xls,.csv">
+                <div class="icon">📁</div>
+                <p>마스터파일 (엑셀)을 드래그하거나 클릭하여 업로드</p>
+            </div>
+            <div class="upload-status" id="uploadStatus"></div>
+        </div>
+
+        <div class="card">
+            <h2><span class="step">2</span> 표 붙여넣기</h2>
+            <div class="paste-area" id="pasteArea" contenteditable="true"></div>
+            <div class="btn-row">
+                <button class="btn btn-primary" id="convertBtn" disabled>변환하기</button>
+                <button class="btn btn-secondary" id="clearBtn">초기화</button>
+            </div>
+        </div>
+
+        <div class="card hidden" id="resultCard">
+            <h2><span class="step">3</span> 변환 결과</h2>
+            <div class="stats" id="stats"></div>
+            <div class="btn-row">
+                <button class="btn btn-success" id="copyBtn">결과 복사</button>
+            </div>
+            <div class="result-wrapper">
+                <table id="resultTable"></table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let masterMap = {};
+        let masterLoaded = false;
+
+        const masterFileInput = document.getElementById('masterFile');
+        const uploadArea = document.getElementById('uploadArea');
+        const uploadStatus = document.getElementById('uploadStatus');
+
+        uploadArea.addEventListener('dragover', e => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', e => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                masterFileInput.files = e.dataTransfer.files;
+                loadMasterFile(e.dataTransfer.files[0]);
+            }
+        });
+        masterFileInput.addEventListener('change', e => {
+            if (e.target.files.length) loadMasterFile(e.target.files[0]);
+        });
+
+        function loadMasterFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const wb = XLSX.read(e.target.result, { type: 'array' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+                    masterMap = {};
+                    let cosmaxIdx = -1, kenvueIdx = -1;
+
+                    const header = data[0] || [];
+                    for (let i = 0; i < header.length; i++) {
+                        const h = String(header[i]).trim();
+                        if (/코스맥스/i.test(h)) cosmaxIdx = i;
+                        if (/켄뷰|존슨|johnson|kenvue/i.test(h)) kenvueIdx = i;
+                    }
+
+                    if (cosmaxIdx === -1) cosmaxIdx = 0;
+                    if (kenvueIdx === -1) kenvueIdx = 1;
+
+                    for (let r = 1; r < data.length; r++) {
+                        const row = data[r];
+                        if (!row || !row[kenvueIdx]) continue;
+                        const kenvueCode = String(row[kenvueIdx]).trim();
+                        const cosmaxCode = String(row[cosmaxIdx] || '').trim();
+                        const name = row.length > 2 ? String(row[2] || '').trim() : '';
+                        if (kenvueCode) {
+                            masterMap[kenvueCode] = { cosmax: cosmaxCode, name: name };
+                        }
+                    }
+
+                    const count = Object.keys(masterMap).length;
+                    masterLoaded = true;
+                    uploadStatus.className = 'upload-status success';
+                    uploadStatus.textContent = `✓ 마스터파일 로드 완료: ${count}개 원료 매핑`;
+                    document.getElementById('convertBtn').disabled = false;
+                } catch (err) {
+                    uploadStatus.className = 'upload-status error';
+                    uploadStatus.textContent = `✗ 파일 읽기 오류: ${err.message}`;
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        const pasteArea = document.getElementById('pasteArea');
+        const convertBtn = document.getElementById('convertBtn');
+        const clearBtn = document.getElementById('clearBtn');
+
+        convertBtn.addEventListener('click', doConvert);
+        clearBtn.addEventListener('click', () => {
+            pasteArea.innerHTML = '';
+            document.getElementById('resultCard').classList.add('hidden');
+        });
+
+        function parseTableFromPaste() {
+            const tables = pasteArea.querySelectorAll('table');
+            if (tables.length > 0) {
+                const rows = [];
+                tables[0].querySelectorAll('tr').forEach(tr => {
+                    const cells = [];
+                    tr.querySelectorAll('td, th').forEach(cell => {
+                        cells.push(cell.textContent.trim());
+                    });
+                    if (cells.length > 0) rows.push(cells);
+                });
+                return rows;
+            }
+
+            const text = pasteArea.innerText || pasteArea.textContent;
+            const lines = text.split('\n').filter(l => l.trim());
+            const rows = lines.map(line => line.split('\t').map(c => c.trim()));
+            return rows;
+        }
+
+        function findKenvueColumns(rows) {
+            if (rows.length === 0) return [];
+
+            const colCount = Math.max(...rows.map(r => r.length));
+            const kenvueCols = [];
+
+            for (let c = 0; c < colCount; c++) {
+                let matchCount = 0;
+                let totalNonEmpty = 0;
+                for (let r = 0; r < rows.length; r++) {
+                    const val = (rows[r][c] || '').trim();
+                    if (!val) continue;
+                    totalNonEmpty++;
+                    if (masterMap[val]) matchCount++;
+                }
+                if (totalNonEmpty > 0 && matchCount / totalNonEmpty > 0.3) {
+                    kenvueCols.push(c);
+                }
+            }
+
+            if (rows.length > 0) {
+                for (let c = 0; c < rows[0].length; c++) {
+                    const h = rows[0][c] || '';
+                    if (/켄뷰|존슨|johnson|kenvue|원료코드/i.test(h) && !kenvueCols.includes(c)) {
+                        kenvueCols.push(c);
+                    }
+                }
+            }
+
+            return kenvueCols;
+        }
+
+        function doConvert() {
+            if (!masterLoaded) {
+                alert('먼저 마스터파일을 업로드해주세요.');
+                return;
+            }
+
+            const rows = parseTableFromPaste();
+            if (rows.length === 0) {
+                alert('변환할 데이터가 없습니다. 표를 붙여넣기 해주세요.');
+                return;
+            }
+
+            const kenvueCols = findKenvueColumns(rows);
+            if (kenvueCols.length === 0) {
+                alert('켄뷰코드를 포함한 열을 찾을 수 없습니다.\n마스터파일과 일치하는 코드가 있는지 확인해주세요.');
+                return;
+            }
+
+            let totalCodes = 0;
+            let matchedCodes = 0;
+            let unmatchedCodes = 0;
+
+            const resultRows = rows.map((row, rowIdx) => {
+                const newRow = [];
+                for (let c = 0; c < row.length; c++) {
+                    newRow.push({ value: row[c] || '', type: 'original' });
+
+                    if (kenvueCols.includes(c)) {
+                        const val = (row[c] || '').trim();
+                        if (rowIdx === 0 && rows.length > 1) {
+                            newRow.push({ value: '코스맥스코드', type: 'cosmax-header' });
+                        } else if (val && masterMap[val]) {
+                            newRow.push({ value: masterMap[val].cosmax, type: 'cosmax' });
+                            totalCodes++;
+                            matchedCodes++;
+                        } else if (val) {
+                            newRow.push({ value: '미등록', type: 'notfound' });
+                            totalCodes++;
+                            unmatchedCodes++;
+                        } else {
+                            newRow.push({ value: '', type: 'cosmax' });
+                        }
+                    }
+                }
+                return newRow;
+            });
+
+            renderResult(resultRows, totalCodes, matchedCodes, unmatchedCodes);
+        }
+
+        function renderResult(resultRows, total, matched, unmatched) {
+            const card = document.getElementById('resultCard');
+            card.classList.remove('hidden');
+
+            document.getElementById('stats').innerHTML = `
+                <div class="stat-item stat-total">전체 코드: ${total}개</div>
+                <div class="stat-item stat-matched">변환 성공: ${matched}개</div>
+                ${unmatched > 0 ? `<div class="stat-item stat-unmatched">미등록: ${unmatched}개</div>` : ''}
+            `;
+
+            const table = document.getElementById('resultTable');
+            let html = '';
+            resultRows.forEach((row, ri) => {
+                const tag = ri === 0 && resultRows.length > 1 ? 'th' : 'td';
+                html += '<tr>';
+                row.forEach(cell => {
+                    let cls = '';
+                    if (cell.type === 'cosmax' || cell.type === 'cosmax-header') cls = 'col-cosmax';
+                    if (cell.type === 'notfound') cls = 'col-notfound';
+                    html += `<${tag} class="${cls}">${escapeHtml(cell.value)}</${tag}>`;
+                });
+                html += '</tr>';
+            });
+            table.innerHTML = html;
+
+            card.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        document.getElementById('copyBtn').addEventListener('click', () => {
+            const table = document.getElementById('resultTable');
+            const rows = table.querySelectorAll('tr');
+            const tsv = Array.from(rows).map(tr => {
+                return Array.from(tr.querySelectorAll('th, td')).map(cell => cell.textContent).join('\t');
+            }).join('\n');
+
+            navigator.clipboard.writeText(tsv).then(() => {
+                const btn = document.getElementById('copyBtn');
+                const orig = btn.textContent;
+                btn.textContent = '✓ 복사됨!';
+                setTimeout(() => btn.textContent = orig, 1500);
+            }).catch(() => {
+                const ta = document.createElement('textarea');
+                ta.value = tsv;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                const btn = document.getElementById('copyBtn');
+                btn.textContent = '✓ 복사됨!';
+                setTimeout(() => btn.textContent = '결과 복사', 1500);
+            });
+        });
+
+        pasteArea.addEventListener('paste', function(e) {
+            const html = e.clipboardData.getData('text/html');
+            if (html && html.includes('<table')) {
+                e.preventDefault();
+                this.innerHTML = html;
+            }
+        });
+    </script>
+</body>
+</html>
