@@ -292,7 +292,8 @@
     </div>
 
     <script>
-        let masterMap = {};
+        let masterMap = {};    // kenvue -> {cosmax, name}
+        let reverseMap = {};   // cosmax -> {kenvue, name}
         let masterRawData = []; // [{cosmax, kenvue, name}]
         let masterLoaded = false;
 
@@ -307,8 +308,10 @@
             try {
                 masterRawData = JSON.parse(saved);
                 masterMap = {};
+                reverseMap = {};
                 masterRawData.forEach(item => {
                     masterMap[item.kenvue] = { cosmax: item.cosmax, name: item.name };
+                    reverseMap[item.cosmax] = { kenvue: item.kenvue, name: item.name };
                 });
                 masterLoaded = true;
                 return true;
@@ -354,6 +357,7 @@
                     const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
                     masterMap = {};
+                    reverseMap = {};
                     masterRawData = [];
                     let cosmaxIdx = -1, kenvueIdx = -1;
 
@@ -376,6 +380,7 @@
                         if (kenvueCode && !seen[kenvueCode]) {
                             seen[kenvueCode] = true;
                             masterMap[kenvueCode] = { cosmax: cosmaxCode, name: name };
+                            reverseMap[cosmaxCode] = { kenvue: kenvueCode, name: name };
                             masterRawData.push({ cosmax: cosmaxCode, kenvue: kenvueCode, name: name });
                         }
                     }
@@ -477,40 +482,55 @@
             return lines.map(line => line.split('\t').map(c => c.trim()));
         }
 
-        function findKenvueColumns(rows) {
+        // Returns [{col, direction}] where direction is 'kenvue2cosmax' or 'cosmax2kenvue'
+        function findCodeColumns(rows) {
             if (rows.length === 0) return [];
             const colCount = Math.max(...rows.map(r => r.length));
-            const kenvueCols = [];
+            const results = [];
 
             for (let c = 0; c < colCount; c++) {
-                let matchCount = 0, totalNonEmpty = 0;
+                let kenvueMatch = 0, cosmaxMatch = 0, totalNonEmpty = 0;
                 for (let r = 0; r < rows.length; r++) {
                     const val = (rows[r][c] || '').trim();
                     if (!val) continue;
                     totalNonEmpty++;
-                    if (masterMap[val]) matchCount++;
+                    if (masterMap[val]) kenvueMatch++;
+                    if (reverseMap[val]) cosmaxMatch++;
                 }
-                if (totalNonEmpty > 0 && matchCount / totalNonEmpty > 0.3) {
-                    kenvueCols.push(c);
-                }
-            }
-            if (rows.length > 0) {
-                for (let c = 0; c < rows[0].length; c++) {
-                    const h = rows[0][c] || '';
-                    if (/켄뷰|존슨|johnson|kenvue|원료코드/i.test(h) && !kenvueCols.includes(c)) {
-                        kenvueCols.push(c);
+                if (totalNonEmpty > 0) {
+                    if (kenvueMatch / totalNonEmpty > 0.3) {
+                        results.push({ col: c, direction: 'kenvue2cosmax' });
+                    } else if (cosmaxMatch / totalNonEmpty > 0.3) {
+                        results.push({ col: c, direction: 'cosmax2kenvue' });
                     }
                 }
             }
-            return kenvueCols;
+
+            // Also check header row for keywords
+            if (rows.length > 0) {
+                const foundCols = results.map(r => r.col);
+                for (let c = 0; c < rows[0].length; c++) {
+                    if (foundCols.includes(c)) continue;
+                    const h = rows[0][c] || '';
+                    if (/켄뷰|존슨|johnson|kenvue|원료코드/i.test(h)) {
+                        results.push({ col: c, direction: 'kenvue2cosmax' });
+                    } else if (/코스맥스|cosmax/i.test(h)) {
+                        results.push({ col: c, direction: 'cosmax2kenvue' });
+                    }
+                }
+            }
+            return results;
         }
 
         function doConvert() {
             if (!masterLoaded) { alert('먼저 마스터파일을 업로드해주세요.'); return; }
             const rows = parseTableFromPaste();
             if (rows.length === 0) { alert('변환할 데이터가 없습니다.'); return; }
-            const kenvueCols = findKenvueColumns(rows);
-            if (kenvueCols.length === 0) { alert('켄뷰코드를 포함한 열을 찾을 수 없습니다.'); return; }
+            const codeCols = findCodeColumns(rows);
+            if (codeCols.length === 0) { alert('켄뷰코드 또는 코스맥스코드를 포함한 열을 찾을 수 없습니다.'); return; }
+
+            const colMap = {};
+            codeCols.forEach(item => { colMap[item.col] = item.direction; });
 
             let totalCodes = 0, matchedCodes = 0, unmatchedCodes = 0;
 
@@ -518,16 +538,22 @@
                 const newRow = [];
                 for (let c = 0; c < row.length; c++) {
                     newRow.push({ value: row[c] || '', type: 'original' });
-                    if (kenvueCols.includes(c)) {
+                    if (colMap[c]) {
                         const val = (row[c] || '').trim();
+                        const dir = colMap[c];
                         if (rowIdx === 0 && rows.length > 1) {
-                            newRow.push({ value: '코스맥스코드', type: 'cosmax-header' });
-                        } else if (val && masterMap[val]) {
-                            newRow.push({ value: masterMap[val].cosmax, type: 'cosmax' });
-                            totalCodes++; matchedCodes++;
+                            const headerText = dir === 'kenvue2cosmax' ? '코스맥스코드' : '켄뷰코드';
+                            newRow.push({ value: headerText, type: 'cosmax-header' });
                         } else if (val) {
-                            newRow.push({ value: '미등록', type: 'notfound' });
-                            totalCodes++; unmatchedCodes++;
+                            const lookup = dir === 'kenvue2cosmax' ? masterMap[val] : reverseMap[val];
+                            if (lookup) {
+                                const converted = dir === 'kenvue2cosmax' ? lookup.cosmax : lookup.kenvue;
+                                newRow.push({ value: converted, type: 'cosmax' });
+                                totalCodes++; matchedCodes++;
+                            } else {
+                                newRow.push({ value: '미등록', type: 'notfound' });
+                                totalCodes++; unmatchedCodes++;
+                            }
                         } else {
                             newRow.push({ value: '', type: 'cosmax' });
                         }
