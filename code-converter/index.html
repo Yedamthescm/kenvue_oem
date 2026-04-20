@@ -252,7 +252,8 @@
             <h2><span class="step">3</span> 변환 결과</h2>
             <div class="stats" id="stats"></div>
             <div class="btn-row">
-                <button class="btn btn-success" id="copyBtn">결과 복사</button>
+                <button class="btn btn-success" id="copyBtn">표 복사 (Outlook용)</button>
+                <button class="btn btn-primary" id="csvBtn">CSV 다운로드</button>
             </div>
             <div class="result-wrapper">
                 <table class="data-table" id="resultTable"></table>
@@ -595,29 +596,62 @@
             return div.innerHTML;
         }
 
-        // 결과 복사
+        // 결과 복사 (HTML 테이블 형태 - Outlook/Word 붙여넣기 지원)
         document.getElementById('copyBtn').addEventListener('click', () => {
             const table = document.getElementById('resultTable');
+            // HTML 테이블로 복사 (Outlook에서 표 형태 유지)
+            const htmlContent = '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;font-family:맑은 고딕,Malgun Gothic,sans-serif;font-size:11pt;">' + table.innerHTML + '</table>';
+            // 텍스트 폴백용 TSV
             const rows = table.querySelectorAll('tr');
             const tsv = Array.from(rows).map(tr =>
                 Array.from(tr.querySelectorAll('th, td')).map(cell => cell.textContent).join('\t')
             ).join('\n');
 
-            navigator.clipboard.writeText(tsv).then(() => {
-                const btn = document.getElementById('copyBtn');
-                btn.textContent = '✓ 복사됨!';
-                setTimeout(() => btn.textContent = '결과 복사', 1500);
-            }).catch(() => {
-                const ta = document.createElement('textarea');
-                ta.value = tsv;
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-                const btn = document.getElementById('copyBtn');
-                btn.textContent = '✓ 복사됨!';
-                setTimeout(() => btn.textContent = '결과 복사', 1500);
+            const blob = new Blob([htmlContent], { type: 'text/html' });
+            const clipboardItem = new ClipboardItem({
+                'text/html': blob,
+                'text/plain': new Blob([tsv], { type: 'text/plain' })
             });
+            navigator.clipboard.write([clipboardItem]).then(() => {
+                const btn = document.getElementById('copyBtn');
+                btn.textContent = '✓ 복사됨!';
+                setTimeout(() => btn.textContent = '표 복사 (Outlook용)', 1500);
+            }).catch(() => {
+                // 폴백: 텍스트만 복사
+                navigator.clipboard.writeText(tsv).then(() => {
+                    const btn = document.getElementById('copyBtn');
+                    btn.textContent = '✓ 텍스트로 복사됨';
+                    setTimeout(() => btn.textContent = '표 복사 (Outlook용)', 1500);
+                });
+            });
+        });
+
+        // CSV 다운로드
+        document.getElementById('csvBtn').addEventListener('click', () => {
+            const table = document.getElementById('resultTable');
+            const rows = table.querySelectorAll('tr');
+            if (rows.length === 0) { alert('다운로드할 결과가 없습니다.'); return; }
+
+            const csvRows = Array.from(rows).map(tr =>
+                Array.from(tr.querySelectorAll('th, td')).map(cell => {
+                    let val = cell.textContent;
+                    // CSV 이스케이프: 쉼표, 따옴표, 줄바꿈 포함 시 따옴표로 감싸기
+                    if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+                        val = '"' + val.replace(/"/g, '""') + '"';
+                    }
+                    return val;
+                }).join(',')
+            );
+            const csvContent = '\uFEFF' + csvRows.join('\n'); // BOM 추가 (한글 엑셀 호환)
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '변환결과_' + new Date().toISOString().slice(0,10) + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         });
 
         // 붙여넣기 시 HTML 테이블 유지
